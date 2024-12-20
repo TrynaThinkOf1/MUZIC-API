@@ -18,7 +18,7 @@ import secrets, hashlib
 #     INITIALIZATION
 app = Flask(__name__)
 api = Api(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///songs.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///databases.db'
 db = SQLAlchemy(app)
 #########################
 
