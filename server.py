@@ -6,11 +6,11 @@
 
 #########################
 # IMPORT EXT. LIBRARIES
-from flask import Flask, request
+from flask import Flask
 from flask_restful import Api, Resource, marshal_with, reqparse, fields, abort
 from flask_sqlalchemy import SQLAlchemy
 # IMPORT INCL. LIBRARIES
-import pathlib
+import pathlib, secrets, hashlib
 # IMPORT LOCAL LIBRARIES
 #########################
 
@@ -37,9 +37,8 @@ class SongDB(db.Model):
         return "<Song {}>".format(self.id)
 
 class Keys(db.Model):
-    id = db.Column(db.Integer, unique=True, nullable=False, primary_key=True)
-    key = db.Column(db.String, unique=True, nullable=False)
-    admin_key = db.Column(db.String, unique=True, nullable=False)
+    key = db.Column(db.String, unique=True, primary_key=True)
+    admin_key = db.Column(db.String, unique=True)
 #########################
 
 #########################
@@ -47,16 +46,26 @@ class Keys(db.Model):
 song_get_args = reqparse.RequestParser()
 song_get_args.add_argument('key', type=str, required=True)
 song_get_args.add_argument('song_id', type=int)
+
+song_post_args = reqparse.RequestParser()
+song_post_args.add_argument('admin_key', type=str, required=True)
+song_post_args.add_argument('gov_name', type=str, required=True)
+#TODO: Figure out how to transfer file
+
+song_patch_args = reqparse.RequestParser()
+song_patch_args.add_argument('admin_key', type=str, required=True)
+song_patch_args.add_argument('gov_name', type=str, required=True)
+
+song_del_args = reqparse.RequestParser()
+song_del_args.add_argument('admin_key', type=str, required=True)
 #########################
 
 #########################
 #      DECORATORS
 field_flavors = {
-    "key": fields.String,
-    "song_id": fields.Integer
+    "song_id": fields.Integer,
+    "raw_key": fields.String
 }
-
-# TODO: ADD A WRAPPER FUNCTION TO REQUIRE KEY
 #########################
 
 #########################
@@ -72,6 +81,10 @@ def extract(gov_name, type):
     elif type == "writer_name":
         writer_name = gov_name.split("-")[1].lower()
         return writer_name
+
+def hashKey(key):
+    hashed_key = hashlib.sha256(key.encode("utf8")).hexdigest()
+    return hashed_key
 #########################
 
 #########################
@@ -84,16 +97,16 @@ class SongResource(Resource):
         if not song:
             abort(404, message="Song not found")
 
-        if key not in Keys.query.all():
+        if hashKey(key) not in Keys.query.all():
             abort(404, message="Key not valid")
 
         return song
 
     # ¡ ADMINS ONLY !
     @marshal_with(field_flavors)
-    def post(self, gov_name):
-        args = song_get_args.parse_args()
-        if not Keys.query.filter_by(admin_key=args['key']).first():
+    def post(self):
+        args = song_post_args.parse_args()
+        if not Keys.query.filter_by(admin_key=hashKey(args['key'])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
         id = getNextSongID()
@@ -109,8 +122,8 @@ class SongResource(Resource):
         return song, 201
 
     @marshal_with(field_flavors)
-    def put(self, song_id):
-        args = song_get_args.parse_args()
+    def patch(self, song_id):
+        args = song_patch_args.parse_args()
         if not Keys.query.filter_by(admin_key=args['key']).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
@@ -126,9 +139,40 @@ class SongResource(Resource):
         db.session.commit()
 
         return song, 200
+
+    def delete(self, song_id):
+        args = song_del_args.parse_args()
+        if not Keys.query.filter_by(admin_key=args['key']).first():
+            abort(403, message="You're not allowed to do that, silly billy!")
+
+        result = SongDB.query.filter_by(id=song_id).first()
+        if not result:
+            abort(404, message="Song not found")
+
+        db.session.delete(result)
+        db.session.commit()
+
+        return "", 204
+
+class KeyResource(Resource):
+    @marshal_with(field_flavors)
+    def post(self):
+        raw_key = secrets.token_hex(32)
+        hashed_key = hashKey(raw_key)
+
+        if not Keys.query.filter_by(key=hashed_key).first():
+            new_key = Keys(key=hashed_key)
+            db.session.add(new_key)
+            db.session.commit()
+
+            return {"song_id": None, "raw_key": raw_key}, 201
+        else:
+            abort(409, message="Key already exists, try again. (WHAT ARE THE ODDS???!?!?!?!?!)")
+
 #########################
 #       ENDPOINTS
 api.add_resource(SongResource, '/songs/<int:song_id>')
+api.add_resource(KeyResource, '/key')
 #########################
 
 #########################
@@ -137,6 +181,6 @@ api.add_resource(SongResource, '/songs/<int:song_id>')
 
 #########################
 if __name__ == "__main__":
-    with app.app_context(): # UNCOMMENT ON INITIAL CREATION/RECREATION
-        db.create_all() #        ^
+    #with app.app_context(): # UNCOMMENT ON INITIAL CREATION/RECREATION
+        #db.create_all()
     app.run(debug=True, host="0.0.0.0", port=6969) # ¡¡¡ DON'T RUN ON DEBUG WHEN IN PRODUCTION !!!
