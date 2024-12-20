@@ -6,11 +6,11 @@
 
 #########################
 # IMPORT EXT. LIBRARIES
-from flask import Flask
+from flask import Flask, request
 from flask_restful import Api, Resource, marshal_with, reqparse, fields, abort
 from flask_sqlalchemy import SQLAlchemy
 # IMPORT INCL. LIBRARIES
-import pathlib, secrets, hashlib
+import secrets, hashlib
 # IMPORT LOCAL LIBRARIES
 #########################
 
@@ -20,8 +20,6 @@ app = Flask(__name__)
 api = Api(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///songs.db'
 db = SQLAlchemy(app)
-
-songs_dir = pathlib.Path(__file__).parent / "songs"
 #########################
 
 #########################
@@ -50,7 +48,6 @@ song_get_args.add_argument('song_id', type=int)
 song_post_args = reqparse.RequestParser()
 song_post_args.add_argument('admin_key', type=str, required=True)
 song_post_args.add_argument('gov_name', type=str, required=True)
-#TODO: Figure out how to transfer file
 
 song_patch_args = reqparse.RequestParser()
 song_patch_args.add_argument('admin_key', type=str, required=True)
@@ -85,19 +82,24 @@ def extract(gov_name, type):
 def hashKey(key):
     hashed_key = hashlib.sha256(key.encode("utf8")).hexdigest()
     return hashed_key
+
+def fileAllowed(file):
+    allowed_exts = ["mp3", "wav"]
+
+    return "." in file and file.split(".")[-1] in allowed_exts
 #########################
 
 #########################
 #       RESOURCES
 class SongResource(Resource):
     @marshal_with(field_flavors)
-    def get(self, song_id):
-        key = song_get_args.parse_args()['key']
-        song = SongDB.query.filter_by(id=song_id).first()
+    def get(self):
+        args = song_get_args.parse_args()
+        song = SongDB.query.filter_by(id=args['song_id']).first()
         if not song:
             abort(404, message="Song not found")
 
-        if hashKey(key) not in Keys.query.all():
+        if hashKey(args['key']) not in Keys.query.all():
             abort(404, message="Key not valid")
 
         return song
@@ -106,14 +108,14 @@ class SongResource(Resource):
     @marshal_with(field_flavors)
     def post(self):
         args = song_post_args.parse_args()
-        if not Keys.query.filter_by(admin_key=hashKey(args['key'])).first():
+        if not Keys.query.filter_by(admin_key=hashKey(args['admin_key'])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
         id = getNextSongID()
         gov_name = args['gov_name']
         nick_name = extract(args['gov_name'], 'nick_name')
         writer_name = extract(args['gov_name'],'writer_name')
-        path = None #TODO: Figure out path shit
+        path = AHAHAHAHAHHAHFBJSAUFTDIUAKYGJHBKWDVUYFO8AGILU BHDGIAGKWJDBSVCUYO7TOYAIHLWJDS GCILAUWYO87ILUWAKYEH BD
 
         song = SongDB(id=id, gov_name=gov_name, nick_name=nick_name, writer_name=writer_name, path=path)
         db.session.add(song)
@@ -122,12 +124,12 @@ class SongResource(Resource):
         return song, 201
 
     @marshal_with(field_flavors)
-    def patch(self, song_id):
+    def patch(self):
         args = song_patch_args.parse_args()
-        if not Keys.query.filter_by(admin_key=args['key']).first():
+        if not Keys.query.filter_by(admin_key=hashKey(args['admin_key'])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
-        song = SongDB.query.filter_by(id=song_id).first()
+        song = SongDB.query.filter_by(id=args['song_id']).first()
         if not song:
             abort(404, message="Song not found")
 
@@ -140,12 +142,12 @@ class SongResource(Resource):
 
         return song, 200
 
-    def delete(self, song_id):
+    def delete(self):
         args = song_del_args.parse_args()
-        if not Keys.query.filter_by(admin_key=args['key']).first():
+        if not Keys.query.filter_by(admin_key=hashKey(args['admin_key'])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
-        result = SongDB.query.filter_by(id=song_id).first()
+        result = SongDB.query.filter_by(id=args['song_id']).first()
         if not result:
             abort(404, message="Song not found")
 
@@ -171,7 +173,7 @@ class KeyResource(Resource):
 
 #########################
 #       ENDPOINTS
-api.add_resource(SongResource, '/songs/<int:song_id>')
+api.add_resource(SongResource, '/song')
 api.add_resource(KeyResource, '/key')
 #########################
 
@@ -181,6 +183,6 @@ api.add_resource(KeyResource, '/key')
 
 #########################
 if __name__ == "__main__":
-    #with app.app_context(): # UNCOMMENT ON INITIAL CREATION/RECREATION
-        #db.create_all()
+    with app.app_context(): # UNCOMMENT ON INITIAL CREATION/RECREATION
+        db.create_all()
     app.run(debug=True, host="0.0.0.0", port=6969) # ¡¡¡ DON'T RUN ON DEBUG WHEN IN PRODUCTION !!!
