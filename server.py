@@ -50,8 +50,8 @@ class Keys(db.Model):
 #########################
 #    ARGS & PARSERS
 song_get_args = reqparse.RequestParser()
-#song_get_args.add_argument('key', type=str, required=True)
-song_get_args.add_argument('song_id', type=int)
+song_get_args.add_argument('key', type=str, required=True)
+song_get_args.add_argument('song_id', type=int, required=True)
 
 #song_post_args = reqparse.RequestParser()
 #song_post_args.add_argument('admin_key', type=str, required=True)
@@ -115,13 +115,13 @@ class GetSong(Resource):
         if not song:
             abort(404, message="Song not found")
 
-        if hashKey(args['key']) not in Keys.query.all():
-            abort(404, message="Key not valid")
+        if not Keys.query.filter_by(key=hashKey(args['key'])).first():
+            abort(403, message="Key not valid")
 
         if not os.path.exists(song.path):
             return jsonify({"message": "File not found"}), 404
 
-        return send_file(song.path, mimetype="audio/mpeg")
+        return song#send_file(song.path, mimetype="audio/mpeg")
 
 # ¡ ADMINS ONLY !
 class PostSong(Resource):
@@ -141,7 +141,7 @@ class PostSong(Resource):
         if 'file' not in request.files:
             return jsonify({"message": "No file part"}), 400
 
-        file = request.files.get('file')
+        file = request.files.get('file') if fileAllowed(request.files['file']) else None
 
         if file.filename == '':
             return jsonify({"message": "No selected file"}), 400
