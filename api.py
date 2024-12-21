@@ -11,7 +11,7 @@ from flask_restful import Api, Resource, marshal_with, reqparse, fields, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_caching import Cache
 # IMPORT INCL. LIBRARIES
-import secrets, hashlib, os
+import secrets, hashlib, os, mimetypes
 
 # IMPORT LOCAL LIBRARIES
 #########################
@@ -32,7 +32,7 @@ cache = Cache(app, config={"CACHE_TYPE": "simple", "CACHE_DEFAULT_TIMEOUT": 600}
 #########################
 #       DATABASES
 class SongDB(db.Model):
-    id = db.Column(db.Integer, unique=True, nullable=False, primary_key=True)
+    id = db.Column(db.Integer, unique=True, nullable=False, primary_key=True, autoincrement=True)
     gov_name = db.Column(db.String, nullable=False)
     nick_name = db.Column(db.String, nullable=False)
     writer_name = db.Column(db.String, nullable=False)
@@ -74,10 +74,6 @@ field_flavors = {
 
 #########################
 #     HELPER FUNCS
-def getNextSongID():
-    max_id = db.session.query(db.func.max(SongDB.id)).scalar()
-    return (max_id + 1) if max_id is not None else 0
-
 def extract(gov_name, type):
     if type == "nick_name":
         nick_name = gov_name.split("-")[0].lower()
@@ -95,9 +91,12 @@ def hashKey(key):
     return hashed_key
 
 def fileAllowed(file):
-    allowed_exts = ["mp3", "wav"]
-
-    return "." in file and file.split(".")[-1] in allowed_exts
+    allowed_exts = ["mp3", "wav", "m4a"]
+    ext = file.rsplit(".", 1)[-1].lower() if "." in file else ""
+    mime_type = mimetypes.guess_type(file)
+    if ext in allowed_exts and mime_type in ["audio/mpeg", "audio/wav"]:
+        return True
+    return False
 #########################
 
 #########################
@@ -125,26 +124,35 @@ class PostSong(Resource):
         if not Keys.query.filter_by(admin_key=hashKey(key)).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
-        id = getNextSongID()
         nick_name = extract(gov_name, "nick_name")
         writer_name = extract(gov_name, "writer_name")
 
-        # FILE STUFF
         if "file" not in request.files:
             return jsonify({"message": "No file part"}), 400
 
-        file = request.files.get("file") if fileAllowed(request.files["file"]) else None
+        file = request.files.get("file")
 
         if file.filename == "":
             return jsonify({"message": "No selected file"}), 400
 
-        filepath = os.path.join(UPLOAD_FOLDER, f"{id}.{file.extension}")
-        file.save(filepath)
-        #########
+        if not fileAllowed(file):
+            return jsonify({"message": "Forbidden file"}), 403
 
-        song = SongDB(id=id, gov_name=gov_name, nick_name=nick_name, writer_name=writer_name, path=filepath)
+
+        song = SongDB(gov_name=gov_name, nick_name=nick_name, writer_name=writer_name, path="")
         db.session.add(song)
-        db.session.commit()
+        db.session.flush()
+
+        filepath = os.path.join(UPLOAD_FOLDER, f"{id}.{file.filename.rsplit('.', 1)[-1]}")
+
+        try:
+            file.save(filepath)
+            song.path = filepath
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            os.remove(filepath)
+            return jsonify({"message": str(e)}), 500
 
         return song, 201
 

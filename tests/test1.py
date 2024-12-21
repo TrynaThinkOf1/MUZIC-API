@@ -1,7 +1,7 @@
 import requests
 
 url = "http://45.79.216.238:6969/song/post"
-admin_key = ""
+admin_key = "0df483d60a0789495bb5a7a04d46ae6242214fbbe1f56a98a8cd3814c16bd6bd"
 file_path = "./songs/fear.mp3"
 
 def upload():
