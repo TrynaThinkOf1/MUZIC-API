@@ -1,5 +1,5 @@
 #######################################
-#       ZEVI BERLIN - 12/19/2024      #
+#       ZEVI BERLIN - 12/21/2024      #
 #                                     #
 #           Music Server API          #
 #######################################
@@ -9,6 +9,7 @@
 from flask import Flask, request, jsonify
 from flask_restful import Api, Resource, marshal_with, reqparse, fields, abort
 from flask_sqlalchemy import SQLAlchemy
+from flask_caching import Cache
 # IMPORT INCL. LIBRARIES
 import secrets, hashlib, os
 
@@ -21,11 +22,13 @@ from werkzeug.utils import send_file
 #     INITIALIZATION
 app = Flask(__name__)
 api = Api(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///databases.db'
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///databases.db"
 db = SQLAlchemy(app)
 
-UPLOAD_FOLDER = 'songs'
+UPLOAD_FOLDER = "songs"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+cache = Cache(app, config={"CACHE_TYPE": "simple", "CACHE_DEFAULT_TIMEOUT": 600}) # im on the fence about whether this belongs in the "DECORATORS" subdivide
 #########################
 
 #########################
@@ -42,30 +45,20 @@ class SongDB(db.Model):
 
 class Keys(db.Model):
     key = db.Column(db.String, unique=True, primary_key=True)
-    name = db.Column(db.String, nullable=False)
-
     admin_key = db.Column(db.String, unique=True)
 #########################
 
 #########################
 #    ARGS & PARSERS
-song_get_args = reqparse.RequestParser()
-song_get_args.add_argument('key', type=str, required=True)
-song_get_args.add_argument('song_id', type=int, required=True)
-
-#song_post_args = reqparse.RequestParser()
-#song_post_args.add_argument('admin_key', type=str, required=True)
-#song_post_args.add_argument('gov_name', type=str, required=True)
-
 song_patch_args = reqparse.RequestParser()
-song_patch_args.add_argument('admin_key', type=str, required=True)
-song_patch_args.add_argument('gov_name', type=str, required=True)
+song_patch_args.add_argument("admin_key", type=str, required=True)
+song_patch_args.add_argument("gov_name", type=str, required=True)
 
 song_del_args = reqparse.RequestParser()
-song_del_args.add_argument('admin_key', type=str, required=True)
+song_del_args.add_argument("admin_key", type=str, required=True)
 
 key_post_args = reqparse.RequestParser()
-key_post_args.add_argument('name', type=str, required=True)
+key_post_args.add_argument("name", type=str, required=True)
 #########################
 
 #########################
@@ -95,6 +88,10 @@ def extract(gov_name, type):
         writer_name = gov_name.split("-")[1].lower()
         return writer_name
 
+def createKey():
+    raw_key = secrets.token_hex(32)
+    return raw_key
+
 def hashKey(key):
     hashed_key = hashlib.sha256(key.encode("utf8")).hexdigest()
     return hashed_key
@@ -108,20 +105,17 @@ def fileAllowed(file):
 #########################
 #       RESOURCES
 class GetSong(Resource):
+    @cache.cached()
     @marshal_with(field_flavors)
-    def get(self):
-        args = song_get_args.parse_args()
-        song = SongDB.query.filter_by(id=args['song_id']).first()
+    def get(self, song_id):
+        song = SongDB.query.filter_by(id=song_id).first()
         if not song:
             abort(404, message="Song not found")
-
-        if not Keys.query.filter_by(key=hashKey(args['key'])).first():
-            abort(403, message="Key not valid")
 
         if not os.path.exists(song.path):
             return jsonify({"message": "File not found"}), 404
 
-        return song#send_file(song.path, mimetype="audio/mpeg")
+        return send_file(song.path, mimetype="audio/mpeg")
 
 # ¡ ADMINS ONLY !
 class PostSong(Resource):
@@ -137,22 +131,22 @@ class PostSong(Resource):
         if not Keys.query.filter_by(admin_key=hashKey(key)).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
+        id = getNextSongID()
+        nick_name = extract(gov_name, "nick_name")
+        writer_name = extract(gov_name, "writer_name")
+
         # FILE STUFF
-        if 'file' not in request.files:
+        if "file" not in request.files:
             return jsonify({"message": "No file part"}), 400
 
-        file = request.files.get('file') if fileAllowed(request.files['file']) else None
+        file = request.files.get("file") if fileAllowed(request.files["file"]) else None
 
-        if file.filename == '':
+        if file.filename == "":
             return jsonify({"message": "No selected file"}), 400
 
-        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, f"{id}.{file.extension}")
         file.save(filepath)
         #########
-
-        id = getNextSongID()
-        nick_name = extract(gov_name, 'nick_name')
-        writer_name = extract(gov_name,'writer_name')
 
         song = SongDB(id=id, gov_name=gov_name, nick_name=nick_name, writer_name=writer_name, path=filepath)
         db.session.add(song)
@@ -164,17 +158,17 @@ class PatchSong(Resource):
     @marshal_with(field_flavors)
     def patch(self):
         args = song_patch_args.parse_args()
-        if not Keys.query.filter_by(admin_key=hashKey(args['admin_key'])).first():
+        if not Keys.query.filter_by(admin_key=hashKey(args["admin_key"])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
-        song = SongDB.query.filter_by(id=args['song_id']).first()
+        song = SongDB.query.filter_by(id=args["song_id"]).first()
         if not song:
             abort(404, message="Song not found")
 
-        if args['gov_name'] != song.gov_name:
-            song.gov_name = args['gov_name']
-            song.nick_name = extract(args['gov_name'], 'nick_name')
-            song.writer_name = extract(args['gov_name'], 'writer_name')
+        if args["gov_name"] != song.gov_name:
+            song.gov_name = args["gov_name"]
+            song.nick_name = extract(args["gov_name"], "nick_name")
+            song.writer_name = extract(args["gov_name"], "writer_name")
 
         db.session.commit()
 
@@ -183,10 +177,10 @@ class PatchSong(Resource):
 class DeleteSong(Resource):
     def delete(self):
         args = song_del_args.parse_args()
-        if not Keys.query.filter_by(admin_key=hashKey(args['admin_key'])).first():
+        if not Keys.query.filter_by(admin_key=hashKey(args["admin_key"])).first():
             abort(403, message="You're not allowed to do that, silly billy!")
 
-        result = SongDB.query.filter_by(id=args['song_id']).first()
+        result = SongDB.query.filter_by(id=args["song_id"]).first()
         if not result:
             abort(404, message="Song not found")
 
@@ -195,34 +189,32 @@ class DeleteSong(Resource):
 
         return "", 204
 
-class KeyResource(Resource):
+class IndexSongs(Resource):
+    @cache.cached()
     @marshal_with(field_flavors)
-    def post(self):
-        raw_key = secrets.token_hex(32)
-        hashed_key = hashKey(raw_key)
-        args = key_post_args.parse_args()
+    def get(self):
+        songs = SongDB.query.all()
 
-        if not Keys.query.filter_by(key=hashed_key).first():
-            new_key = Keys(key=hashed_key, name=args['name'])
-            db.session.add(new_key)
-            db.session.commit()
+        song_list = [
+            {
+                "id": song.id,
+                "gov_name": song.gov_name,
+                "nick_name": song.nick_name,
+                "writer_name": song.writer_name,
+            }
+            for song in songs
+        ]
 
-            return {"song_id": None, "raw_key": raw_key}, 201
-        else:
-            abort(409, message="Key already exists, try again. (WHAT ARE THE ODDS???!?!?!?!?!)")
+        return jsonify(song_list), 200
 
 #########################
 #       ENDPOINTS
-api.add_resource(GetSong, '/song/get')
-api.add_resource(PostSong, '/song/post')
-api.add_resource(PatchSong, '/song/patch')
-api.add_resource(DeleteSong, '/song/delete')
+api.add_resource(GetSong, "/song/get/<int:song_id>")
+api.add_resource(PostSong, "/song/post")
+api.add_resource(PatchSong, "/song/patch")
+api.add_resource(DeleteSong, "/song/delete")
 
-api.add_resource(KeyResource, '/key/create')
-#########################
-
-#########################
-
+api.add_resource(IndexSongs, "/song/index/all")
 #########################
 
 #########################
@@ -230,4 +222,4 @@ if __name__ == "__main__":
     #with app.app_context(): # UNCOMMENT ON INITIAL CREATION/RECREATION
         #db.drop_all()
         #db.create_all()
-    app.run(debug=True, host="0.0.0.0", port=6969) # ¡¡¡ DON'T RUN ON DEBUG WHEN IN PRODUCTION !!!
+    app.run(host="0.0.0.0", port=6969) # ¡¡¡ DON"T RUN ON DEBUG WHEN IN PRODUCTION !!!
