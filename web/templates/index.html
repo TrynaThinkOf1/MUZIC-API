@@ -1,0 +1,47 @@
+<body>
+    <input type="text" id="song_search_bar" placeholder="Enter Song ID...">
+    <button onclick="fetchSong()">Load Song</button><br>
+
+    <h3 id="song_name_header" style="display: none"></h3>
+    <h5 id="writer_name_header" style="display: none"></h5><br>
+
+    <script>
+        fetch("http://45.79.216.238:6969/song/get")
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.error(error));
+
+        async function fetchSong() {
+            try {
+                const song_id = document.getElementById("song_search_bar").value;
+
+                if (!Number.isInteger(song_id)) {
+                    throw new Error("Song ID must be integer")
+                }
+
+                const response = fetch(`http://45.79.216.238:6969/song/get/${song_id}`)
+
+                if (!response.ok) {
+                    throw new Error("Could not load resource")
+                }
+
+                const data = await response.json();
+
+                const song_name = data.nick_name;
+                const writer_name = data.writer_name;
+
+                const song_name_header = document.getElementById("song_name_header");
+                const writer_name_header = document.getElementById("writer_name_header");
+
+                song_name_header.innerText = song_name;
+                song_name_header.style.display = "block";
+
+                writer_name_header.innerText = writer_name;
+                writer_name_header.style.display = "block";
+            }
+            catch(error) {
+                console.error(error)
+            }
+        }
+    </script>
+</body>
