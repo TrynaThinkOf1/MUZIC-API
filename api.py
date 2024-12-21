@@ -93,7 +93,13 @@ def hashKey(key):
 def fileAllowed(file):
     allowed_exts = ["mp3", "wav", "m4a"]
     ext = file.rsplit(".", 1)[-1].lower() if "." in file else ""
-    mime_type = mimetypes.guess_type(file)
+
+    if isinstance(file, str):
+        filename = file
+    else:
+        filename = file.filename
+
+    mime_type = mimetypes.guess_type(filename)
     if ext in allowed_exts and mime_type in ["audio/mpeg", "audio/wav"]:
         return True
     return False
@@ -143,7 +149,7 @@ class PostSong(Resource):
         db.session.add(song)
         db.session.flush()
 
-        filepath = os.path.join(UPLOAD_FOLDER, f"{id}.{file.filename.rsplit('.', 1)[-1]}")
+        filepath = os.path.join(UPLOAD_FOLDER, f"{song.id}.{file.filename.rsplit('.', 1)[-1]}")
 
         try:
             file.save(filepath)
