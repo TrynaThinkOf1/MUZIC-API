@@ -15,10 +15,6 @@
             try {
                 const song_id = document.getElementById("song_search_bar").value;
 
-                if (!Number.isInteger(song_id)) {
-                    throw new Error("Song ID must be integer")
-                }
-
                 const response = fetch(`http://45.79.216.238:6969/song/get/${song_id}`)
 
                 if (!response.ok) {
